@@ -17,6 +17,7 @@ use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
@@ -28,9 +29,11 @@ const PREAMBLE_LEN: u16 = 5 * 8;
 
 const RF_FREQ: RfFreq = RfFreq::from_frequency(490_500_000);
 
+/*
 const SYNC_WORD: [u8; 8] = [0x79, 0x80, 0x0C, 0xC0, 0x29, 0x95, 0xF8, 0x4A];
 const SYNC_WORD_LEN: u8 = SYNC_WORD.len() as u8;
 const SYNC_WORD_LEN_BITS: u8 = SYNC_WORD_LEN * 8;
+*/
 
 const TX_BUF_OFFSET: u8 = 128;
 const RX_BUF_OFFSET: u8 = 0;
@@ -131,16 +134,18 @@ async fn main(_spawner: Spawner) {
     let mut pin = ExtiInput::new(button, p.EXTI0);
 
     static IRQ_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+    // static IRQ_WAKER: AtomicWaker = AtomicWaker::new();
+
     let radio_irq = interrupt::take!(SUBGHZ_RADIO);
+    radio_irq.disable();
     radio_irq.set_handler(|_| {
-        info!("handle irq");
         IRQ_SIGNAL.signal(());
         unsafe { interrupt::SUBGHZ_RADIO::steal() }.disable();
     });
 
     let mut radio = SubGhz::new(p.SUBGHZSPI, NoDma, NoDma);
 
-    //defmt::info!("Radio ready for use");
+    defmt::info!("Radio ready for use");
 
     led1.set_low();
     led2.set_high();
@@ -164,17 +169,19 @@ async fn main(_spawner: Spawner) {
     unwrap!(radio.set_buffer_base_address(TX_BUF_OFFSET, RX_BUF_OFFSET));
 
     unwrap!(radio.set_pa_config(&PA_CONFIG));
-    unwrap!(radio.set_pa_ocp(Ocp::Max60m)); // current max
+    unwrap!(radio.set_pa_ocp(Ocp::Max140m)); // current max
     unwrap!(radio.set_tx_params(&TX_PARAMS));
 
     unwrap!(radio.set_packet_type(PacketType::LoRa));
     unwrap!(radio.set_lora_sync_word(LoRaSyncWord::Public));
     unwrap!(radio.set_lora_mod_params(&LORA_MOD_PARAMS));
     unwrap!(radio.set_lora_packet_params(&LORA_PACKET_PARAMS));
+    unwrap!(radio.calibrate(0x7f));
+
     unwrap!(radio.calibrate_image(CalibrateImage::ISM_470_510));
     unwrap!(radio.set_rf_frequency(&RF_FREQ));
 
-    unwrap!(radio.set_rx_gain(PMode::Boost2));
+    // unwrap!(radio.set_rx_gain(PMode::Boost2));
 
     defmt::info!("Radio Status: {:?}", unwrap!(radio.status()));
 
@@ -187,50 +194,63 @@ async fn main(_spawner: Spawner) {
         led1.set_low();
         // pin.wait_for_rising_edge().await;
         led3.set_high();
+
         rfs.set_rx();
 
-        unwrap!(radio.set_fs());
+        //unwrap!(radio.set_fs());
 
         info!("begin rx...");
 
         unwrap!(radio.set_irq_cfg(
-            &CfgIrq::new().irq_enable_all(Irq::RxDone) //   .irq_enable_all(Irq::Timeout)
+            &CfgIrq::new()
+                .irq_enable_all(Irq::RxDone)
+                .irq_enable_all(Irq::Timeout)
+                .irq_enable_all(Irq::Err)
         ));
         unwrap!(radio.read_buffer(RX_BUF_OFFSET, &mut buf));
-        unwrap!(radio.set_rx(Timeout::from_duration_sat(Duration::from_millis(3000))));
+        unwrap!(radio.set_rx(Timeout::from_duration_sat(Duration::from_millis(5000))));
 
         //unwrap!(radio.write_buffer(TX_BUF_OFFSET, PING_DATA_BYTES));
         //unwrap!(radio.set_tx(Timeout::DISABLED));
 
+        radio_irq.unpend();
         radio_irq.enable();
-        IRQ_SIGNAL.wait().await;
-        rfs.set_off();
 
-        let (st, irq_status) = unwrap!(radio.irq_status());
-        info!("irq_status={:?}", st);
+        IRQ_SIGNAL.wait().await;
+        let (_, irq_status) = unwrap!(radio.irq_status());
         unwrap!(radio.clear_irq_status(irq_status));
-        unwrap!(radio.set_fs());
+
         if irq_status & Irq::RxDone.mask() != 0 {
+            let (_st, len, offset) = unwrap!(radio.rx_buffer_status());
+            let packet_status = unwrap!(radio.lora_packet_status());
+            let rssi = packet_status.rssi_pkt().to_integer();
+            let snr = packet_status.snr_pkt().to_integer();
+            // Status { mode: Ok(StandbyRc), cmd: Ok(Avaliable) }
             led1.set_high();
-            let (st, len, offset) = unwrap!(radio.rx_buffer_status());
             info!(
-                "RX done: rx_buf_st: {:?}, len={} offset={}",
-                st, len, offset
+                "RX done: rssi={}dBm snr={}dB len={} offset={}",
+                rssi, snr, len, offset
             );
             let payload = &buf[offset as usize..offset as usize + len as usize];
-            info!("received: {:?}", unsafe {
-                core::str::from_utf8_unchecked(payload)
-            });
+            //info!("received: {:?}", unsafe {
+            //    core::str::from_utf8_unchecked(payload)
+            //});
+            info!(
+                "got {:?}, raw={:?} ",
+                unsafe { core::str::from_utf8_unchecked(payload) },
+                payload,
+            );
+            led1.toggle();
+        } else if irq_status & Irq::Timeout.mask() != 0 {
+            warn!("timeout");
         } else {
             info!("W: no data received, irq_status={}", irq_status);
+            let (st, len, offset) = unwrap!(radio.rx_buffer_status());
+            info!("fuck {:?}", st);
         }
 
-        led3.set_low();
-
-        led2.set_high();
-
-        Timer::after(embassy_time::Duration::from_millis(5000)).await;
-        led2.set_low();
+        rfs.set_off();
+        // unwrap!(radio.set_fs());
 
         //       info!("buffer {:?}", buf);
         //msg.clear();
