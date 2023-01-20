@@ -8,7 +8,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
 use embassy_stm32::usart::UartTx;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -26,6 +26,7 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB4, Level::High, Speed::Low);
 
     loop {
+        info!("tick");
         //let sample = adc.read(&mut p.PB2);
         let sample = 10;
 
@@ -34,12 +35,14 @@ async fn main(_spawner: Spawner) {
         led.set_high();
         Timer::after(Duration::from_millis(200)).await;
 
-        info!("low");
         led.set_low();
 
         usart.blocking_write(msg.as_bytes()).unwrap();
 
-        //usart.write(msg.as_bytes()).await.unwrap();
+        let i = Instant::now();
+        msg.clear();
+        writeln!(msg, "Time: {} \r", i.as_millis()).unwrap();
+        usart.blocking_write(msg.as_bytes()).unwrap();
 
         Timer::after(Duration::from_millis(200)).await;
 

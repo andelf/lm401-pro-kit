@@ -4,35 +4,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    gpio::{AnyPin, Level, Output, Speed},
-    peripherals::{PA8, PB0},
-};
+use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
+use embassy_stm32::usart::UartTx; // only prints
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
-
-struct RfSwitch<'a> {
-    ctrl1: Output<'a, PB0>,
-    ctrl3: Output<'a, PA8>,
-}
-
-impl<'a> RfSwitch<'a> {
-    fn new(ctrl1: Output<'a, PB0>, ctrl3: Output<'a, PA8>) -> Self {
-        Self { ctrl1, ctrl3 }
-    }
-}
-
-impl<'a> embassy_lora::stm32wl::RadioSwitch for RfSwitch<'a> {
-    fn set_rx(&mut self) {
-        self.ctrl1.set_high();
-        self.ctrl3.set_low();
-    }
-
-    fn set_tx(&mut self) {
-        self.ctrl1.set_low();
-        self.ctrl3.set_high();
-    }
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

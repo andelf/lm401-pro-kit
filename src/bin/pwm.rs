@@ -29,6 +29,8 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     // Channel 2 of TIM2
+    // PB3: TIM2_CH2
+    // NOTE: conflicts with Timer
     let buzz_pin = PwmPin::new_ch2(p.PB3);
     let mut pwm = SimplePwm::new(p.TIM2, None, Some(buzz_pin), None, None, hz(2000));
 
