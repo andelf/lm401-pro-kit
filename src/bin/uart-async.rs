@@ -18,7 +18,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.enable_lsi = true;
-    config.rcc.mux = ClockSrc::MSI(MSIRange::Range11);     // 48MHz; default 4MHz
+    config.rcc.mux = ClockSrc::MSI(MSIRange::Range11); // 48MHz; default 4MHz
     let p = embassy_stm32::init(config);
 
     info!("Starting system....");

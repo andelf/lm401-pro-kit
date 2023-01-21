@@ -6,7 +6,6 @@
 //! Pressure resolution: 0.18 Pa
 //! Temperature resolution: 0.01 C
 
-use core::marker::PhantomData;
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
@@ -81,7 +80,7 @@ macro_rules! set_bits {
 }
 
 /// BME280 errors
-#[derive(Debug)]
+#[derive(Debug, defmt::Format)]
 pub enum Error<E> {
     /// Failed to compensate a raw measurement
     CompensationFailed,

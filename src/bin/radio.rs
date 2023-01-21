@@ -50,7 +50,7 @@ impl<'a> embassy_lora::stm32wl::RadioSwitch for RfSwitch<'a> {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = ClockSrc::MSI(MSIRange::Range11);     // 48MHz; default 4MHz
+    config.rcc.mux = ClockSrc::MSI(MSIRange::Range11); // 48MHz; default 4MHz
     config.rcc.enable_lsi = true;
 
     let p = embassy_stm32::init(config);
