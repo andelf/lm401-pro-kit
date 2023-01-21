@@ -55,5 +55,9 @@ async fn main(_spawner: Spawner) {
             delay.delay_ms(10u32);
         }
         info!("buzz");
+
+        // PWM resets instant
+        let i = embassy_time::Instant::now();
+        info!("instant => {:?}", i);
     }
 }
