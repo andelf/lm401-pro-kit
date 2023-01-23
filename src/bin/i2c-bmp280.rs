@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner) {
         info!("measure tick");
         let raw = unwrap!(bmp280.measure(&mut delay));
 
-        info!("measurements: {:?}", raw);
+        info!("BMP280: {:?}", raw);
 
         led.toggle();
         Timer::after(Duration::from_millis(2000)).await;

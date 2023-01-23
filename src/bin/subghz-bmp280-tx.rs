@@ -9,11 +9,10 @@ use embassy_executor::Spawner;
 use embassy_lora::stm32wl::RadioSwitch as _RadioSwitchTrait;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt};
-use embassy_stm32::peripherals::{PA8, PB0};
 use embassy_stm32::subghz::*;
 use embassy_stm32::time::Hertz;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -22,12 +21,11 @@ use embassy_time::{Delay, Duration, Instant, Timer};
 use lm401_pro_kit::bme280::BME280;
 use {defmt_rtt as _, panic_probe as _};
 
-// "SENSOR" + 4 + 4 + 4 + 2_byte_xor_checksum = 20 bytes
 // SENSOR_ID + DEV_ID + DEV_TIME + SENSOR_DATA
 //const PING_DATA: &str = "PING";
-const DATA_LEN: u8 = 20_u8;
+const DATA_LEN: u8 = 24_u8;
 //const PING_DATA_BYTES: &[u8] = PING_DATA.as_bytes();
-const PREAMBLE_LEN: u16 = 0x8;
+const PREAMBLE_LEN: u16 = 0x8 * 4;
 
 const RF_FREQ: RfFreq = RfFreq::from_frequency(490_500_000);
 
@@ -139,13 +137,14 @@ async fn main(_spawner: Spawner) {
         "Chip ID: {:08x} {:08x} {:08x}",
         chip_id[0], chip_id[1], chip_id[2]
     );
-    info!("DevAddr: {:08x}", dev_addr);
+    info!("Dev Addr: {:08x}", dev_addr);
 
     led_booting.set_low();
 
     // mearure -> send -> receive -> measure -> send -> receive -> ...
     // "MM" + 4 + 4 + 4 + 4 + 2_byte_add_checksum = 20 bytes
-    let mut payload = [0u8; 20];
+    // MM + ADDR + instant_u64 + temperature + pressure + checksum
+    let mut payload = [0u8; 24];
     loop {
         let now = Instant::now();
         let measurements = unwrap!(bmp280.measure(&mut delay));
@@ -155,16 +154,17 @@ async fn main(_spawner: Spawner) {
         payload[0] = b'M';
         payload[1] = b'M';
 
-        payload[2..6].copy_from_slice(dev_addr.to_le_bytes().as_slice());
-        payload[6..10].copy_from_slice(measurements.temperature.to_le_bytes().as_slice());
-        payload[10..14].copy_from_slice(measurements.pressure.to_le_bytes().as_slice());
+        payload[2..6].copy_from_slice(dev_addr.to_be_bytes().as_slice());
+        payload[6..14].copy_from_slice(now.as_millis().to_be_bytes().as_slice());
+        payload[14..18].copy_from_slice(measurements.temperature.to_be_bytes().as_slice());
+        payload[18..22].copy_from_slice(measurements.pressure.to_be_bytes().as_slice());
         // payload[14..18].copy_from_slice(measurements.humidity.to_le_bytes());
 
-        let checksum = payload[2..18]
+        let checksum = payload[2..22]
             .iter()
             .fold(0u16, |acc, x| acc.wrapping_add(*x as u16));
         info!("checksum: {:04x}", checksum);
-        payload[18..20].copy_from_slice(checksum.to_le_bytes().as_slice());
+        payload[22..24].copy_from_slice(checksum.to_be_bytes().as_slice());
 
         // pin.wait_for_rising_edge().await;
         led_tx.set_high();

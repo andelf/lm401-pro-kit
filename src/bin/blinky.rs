@@ -4,8 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
-use embassy_stm32::usart::UartTx; // only prints
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,10 +18,10 @@ async fn main(_spawner: Spawner) {
     loop {
         info!("high");
         led.set_high();
-        Timer::after(Duration::from_millis(200)).await;
+        Timer::after(Duration::from_millis(1000)).await;
 
         info!("low");
         led.set_low();
-        Timer::after(Duration::from_millis(200)).await;
+        Timer::after(Duration::from_millis(1000)).await;
     }
 }

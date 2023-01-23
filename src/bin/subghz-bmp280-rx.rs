@@ -19,11 +19,12 @@ use embassy_stm32::subghz::*;
 use embassy_stm32::usart::UartTx;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_time::Instant;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
-const DATA_LEN: u8 = 20;
-const PREAMBLE_LEN: u16 = 0x8;
+const DATA_LEN: u8 = 24;
+const PREAMBLE_LEN: u16 = 0x8 * 4;
 
 const RF_FREQ: RfFreq = RfFreq::from_frequency(490_500_000);
 
@@ -91,10 +92,6 @@ async fn main(_spawner: Spawner) {
 
     unwrap!(radio.set_standby(StandbyClk::Rc));
 
-    // TCXO not enbaled
-    // unwrap!(radio.set_tcxo_mode(&TCXO_MODE)); // TCXO not supported on this board
-    // unwrap!(radio.set_standby(StandbyClk::Hse));
-
     // in XO mode, set internal capacitor (from 0x00 to 0x2F starting 11.2pF with 0.47pF steps)
     unwrap!(radio.set_hse_in_trim(HseTrim::from_raw(0x20)));
     unwrap!(radio.set_hse_out_trim(HseTrim::from_raw(0x20)));
@@ -108,6 +105,7 @@ async fn main(_spawner: Spawner) {
     unwrap!(radio.set_tx_params(&TX_PARAMS));
 
     unwrap!(radio.set_packet_type(PacketType::LoRa));
+    // must set
     unwrap!(radio.set_lora_sync_word(LoRaSyncWord::Public));
     unwrap!(radio.set_lora_mod_params(&LORA_MOD_PARAMS));
     unwrap!(radio.set_lora_packet_params(&LORA_PACKET_PARAMS));
@@ -115,8 +113,6 @@ async fn main(_spawner: Spawner) {
 
     unwrap!(radio.calibrate_image(CalibrateImage::ISM_470_510));
     unwrap!(radio.set_rf_frequency(&RF_FREQ));
-
-    unwrap!(radio.set_rx_gain(PMode::Boost2));
 
     defmt::info!("Radio Status: {:?}", unwrap!(radio.status()));
     defmt::info!("Radio ready for use");
@@ -126,7 +122,7 @@ async fn main(_spawner: Spawner) {
     let mut buf = [0u8; 256];
     let mut message: String<256> = String::new();
 
-    pin.wait_for_any_edge().await;
+    // pin.wait_for_any_edge().await;
     info!("button pressed, begin rx");
     loop {
         led_rx.set_high();
@@ -164,27 +160,32 @@ async fn main(_spawner: Spawner) {
             );
             let payload = &buf[offset as usize..offset as usize + len as usize];
 
-            debug!("got BMP280 node raw={:?} ", payload);
-            if let Some((addr, temp, pressure, humidity)) = parse_payload(payload) {
+            debug!("got BMP280 node raw={:#x}", payload);
+            if let Some((addr, inst, temp, pressure)) = parse_payload(payload) {
                 info!(
-                    "dev addr={:x} temp={} pressure={} humidity={}",
-                    addr, temp, pressure, humidity
+                    "dev addr={:x} dev tick={} temp={}'C pressure={}hPa",
+                    addr,
+                    inst,
+                    temp,
+                    pressure / 100.0
                 );
 
                 // to UART
                 core::write!(
                     &mut message,
-                    "addr={:x},rssi={},snr={},temperature={},pressure={},humidity={}\r\n",
+                    "addr={:x},rssi={},snr={},temperature={},pressure={}\r\n",
                     addr,
                     rssi,
                     snr,
                     temp,
                     pressure,
-                    humidity
                 )
                 .unwrap();
                 unwrap!(usart.blocking_write(message.as_bytes()));
                 message.clear();
+
+                let stats = unwrap!(radio.lora_stats());
+                info!("stats: {:?}", stats);
             } else {
                 led_error.set_high();
                 warn!("invalid payload");
@@ -205,25 +206,34 @@ async fn main(_spawner: Spawner) {
 }
 
 /// addr, temp, pressure, humidity
-fn parse_payload(payload: &[u8]) -> Option<(u32, f32, f32, f32)> {
-    if payload.len() != 20 {
+fn parse_payload(payload: &[u8]) -> Option<(u32, u64, f32, f32)> {
+    if payload.len() != 24 {
         return None;
     }
     if &payload[0..2] != b"MM" {
         return None;
     }
-    let addr = u32::from_le_bytes([payload[2], payload[3], payload[4], payload[5]]);
-    let temp = f32::from_le_bytes([payload[6], payload[7], payload[8], payload[9]]);
-    let pressure = f32::from_le_bytes([payload[10], payload[11], payload[12], payload[13]]);
-    let humidity = f32::from_le_bytes([payload[14], payload[15], payload[16], payload[17]]);
+    let addr = u32::from_be_bytes([payload[2], payload[3], payload[4], payload[5]]);
+    let instant = u64::from_be_bytes([
+        payload[6],
+        payload[7],
+        payload[8],
+        payload[9],
+        payload[10],
+        payload[11],
+        payload[12],
+        payload[13],
+    ]);
+    let temp = f32::from_be_bytes([payload[14], payload[15], payload[16], payload[17]]);
+    let pressure = f32::from_be_bytes([payload[18], payload[19], payload[20], payload[21]]);
 
-    let checksum = payload[2..18]
+    let checksum = payload[2..22]
         .iter()
         .fold(0u16, |acc, x| acc.wrapping_add(*x as u16));
-    let checksum = checksum.to_le_bytes();
-    if checksum != [payload[18], payload[19]] {
+    let checksum = checksum.to_be_bytes();
+    if checksum != [payload[22], payload[23]] {
         return None;
     }
 
-    Some((addr, temp, pressure, humidity))
+    Some((addr, instant, temp, pressure))
 }

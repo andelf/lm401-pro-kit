@@ -6,7 +6,7 @@ use core::fmt::Write;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::usart::UartTx;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
@@ -14,38 +14,30 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut config = embassy_stm32::Config::default();
+    config.rcc.enable_lsi = true;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::MSI(embassy_stm32::rcc::MSIRange::Range11); // 48MHz
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    // Default: 115200
+    // Default: 115200 8N1
     let mut usart = UartTx::new(p.USART2, p.PA2, NoDma, Default::default());
 
-    let mut msg: String<64> = String::new();
-
-    // PB2: ADC_IN4
     let mut led = Output::new(p.PB4, Level::High, Speed::Low);
 
+    let mut msg: String<64> = String::new();
     loop {
         info!("tick");
-        //let sample = adc.read(&mut p.PB2);
-        let sample = 10;
-
-        writeln!(&mut msg, "ADC read: {} \r", sample).unwrap();
-
         led.set_high();
-        Timer::after(Duration::from_millis(200)).await;
+        Timer::after(Duration::from_millis(1000)).await;
 
         led.set_low();
 
-        usart.blocking_write(msg.as_bytes()).unwrap();
-
         let i = Instant::now();
-        msg.clear();
-        writeln!(msg, "Time: {} \r", i.as_millis()).unwrap();
+        core::write!(msg, "Hello world, device time: {}\r\n", i.as_millis()).unwrap();
         usart.blocking_write(msg.as_bytes()).unwrap();
-
-        Timer::after(Duration::from_millis(200)).await;
-
         msg.clear();
+
+        Timer::after(Duration::from_millis(1000)).await;
     }
 }
