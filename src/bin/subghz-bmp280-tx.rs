@@ -21,10 +21,7 @@ use embassy_time::{Delay, Duration, Instant, Timer};
 use lm401_pro_kit::bme280::BME280;
 use {defmt_rtt as _, panic_probe as _};
 
-// SENSOR_ID + DEV_ID + DEV_TIME + SENSOR_DATA
-//const PING_DATA: &str = "PING";
 const DATA_LEN: u8 = 24_u8;
-//const PING_DATA_BYTES: &[u8] = PING_DATA.as_bytes();
 const PREAMBLE_LEN: u16 = 0x8 * 4;
 
 const RF_FREQ: RfFreq = RfFreq::from_frequency(490_500_000);
@@ -142,10 +139,10 @@ async fn main(_spawner: Spawner) {
     led_booting.set_low();
 
     // mearure -> send -> receive -> measure -> send -> receive -> ...
-    // "MM" + 4 + 4 + 4 + 4 + 2_byte_add_checksum = 20 bytes
-    // MM + ADDR + instant_u64 + temperature + pressure + checksum
     let mut payload = [0u8; 24];
     loop {
+        // pin.wait_for_rising_edge().await;
+
         let now = Instant::now();
         let measurements = unwrap!(bmp280.measure(&mut delay));
 
@@ -158,7 +155,6 @@ async fn main(_spawner: Spawner) {
         payload[6..14].copy_from_slice(now.as_millis().to_be_bytes().as_slice());
         payload[14..18].copy_from_slice(measurements.temperature.to_be_bytes().as_slice());
         payload[18..22].copy_from_slice(measurements.pressure.to_be_bytes().as_slice());
-        // payload[14..18].copy_from_slice(measurements.humidity.to_le_bytes());
 
         let checksum = payload[2..22]
             .iter()
@@ -166,7 +162,6 @@ async fn main(_spawner: Spawner) {
         info!("checksum: {:04x}", checksum);
         payload[22..24].copy_from_slice(checksum.to_be_bytes().as_slice());
 
-        // pin.wait_for_rising_edge().await;
         led_tx.set_high();
         rfs.set_tx();
         unwrap!(radio.set_irq_cfg(&CfgIrq::new().irq_enable_all(Irq::TxDone)));
