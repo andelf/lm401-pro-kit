@@ -9,6 +9,8 @@ embassy-sync = { version = "0.1.0", path = "../embassy/embassy-sync", features =
     "defmt",
 ] }
 embassy-executor = { version = "0.1.0", path = "../embassy/embassy-executor", features = [
+    "arch-cortex-m",
+    "executor-thread",
     "defmt",
     "integrated-timers",
 ] }
@@ -22,7 +24,6 @@ embassy-stm32 = { version = "0.1.0", path = "../embassy/embassy-stm32", features
     "stm32wle5cb",
     "time-driver-any",
     "memory-x",
-    "subghz",
     "unstable-pac",
     "exti",
 ] }
@@ -45,11 +46,19 @@ futures = { version = "0.3.17", default-features = false, features = [
 ] }
 heapless = { version = "0.7.5", default-features = false }
 
+
+lorawan-device = { version = "0.8.0", default-features = false, features = [
+    "async",
+] }
+lorawan = { version = "0.7.1", default-features = false, features = [
+    "default-crypto",
+] }
+
+
 [profile.dev]
 opt-level = "z" # Optimize for size.
 
 [profile.release]
-# `strip = false` is required by defmt
-# strip = true  # Automatically strip symbols from the binary.
+strip = false
 lto = true
 opt-level = "z" # Optimize for size.

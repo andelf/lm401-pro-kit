@@ -21,15 +21,15 @@ use embassy_time::{Delay, Duration, Instant, Timer};
 use lm401_pro_kit::bme280::BME280;
 use {defmt_rtt as _, panic_probe as _};
 
-const DATA_LEN: u8 = 24_u8;
-const PREAMBLE_LEN: u16 = 0x8 * 4;
+const DATA_LEN: u8 = 28_u8;
+const PREAMBLE_LEN: u16 = 0x8 * 8;
 
 const RF_FREQ: RfFreq = RfFreq::from_frequency(490_500_000);
 
 const TX_BUF_OFFSET: u8 = 128;
 const RX_BUF_OFFSET: u8 = 0;
 const LORA_PACKET_PARAMS: LoRaPacketParams = LoRaPacketParams::new()
-    .set_crc_en(true)
+    .set_crc_en(false)
     .set_preamble_len(PREAMBLE_LEN)
     .set_payload_len(DATA_LEN)
     .set_invert_iq(false)
@@ -39,13 +39,13 @@ const LORA_PACKET_PARAMS: LoRaPacketParams = LoRaPacketParams::new()
 const LORA_MOD_PARAMS: LoRaModParams = LoRaModParams::new()
     .set_bw(LoRaBandwidth::Bw125)
     .set_cr(CodingRate::Cr45)
-    .set_ldro_en(true)
+    .set_ldro_en(false) // for compatibility with LoRaWAN
     .set_sf(SpreadingFactor::Sf7);
 
 // configuration for +10 dBm output power
 // see table 35 "PA optimal setting and operating modes"
 const PA_CONFIG: PaConfig = PaConfig::new()
-    .set_pa_duty_cycle(0x4)
+    .set_pa_duty_cycle(0x3)
     .set_hp_max(0x7)
     .set_pa(PaSel::Hp);
 
@@ -139,7 +139,7 @@ async fn main(_spawner: Spawner) {
     led_booting.set_low();
 
     // mearure -> send -> receive -> measure -> send -> receive -> ...
-    let mut payload = [0u8; 24];
+    let mut payload = [0u8; 28];
     loop {
         // pin.wait_for_rising_edge().await;
 
@@ -155,12 +155,13 @@ async fn main(_spawner: Spawner) {
         payload[6..14].copy_from_slice(now.as_millis().to_be_bytes().as_slice());
         payload[14..18].copy_from_slice(measurements.temperature.to_be_bytes().as_slice());
         payload[18..22].copy_from_slice(measurements.pressure.to_be_bytes().as_slice());
+        payload[22..26].copy_from_slice(measurements.pressure.to_be_bytes().as_slice());
 
-        let checksum = payload[2..22]
+        let checksum = payload[2..26]
             .iter()
             .fold(0u16, |acc, x| acc.wrapping_add(*x as u16));
         info!("checksum: {:04x}", checksum);
-        payload[22..24].copy_from_slice(checksum.to_be_bytes().as_slice());
+        payload[26..28].copy_from_slice(checksum.to_be_bytes().as_slice());
 
         led_tx.set_high();
         rfs.set_tx();

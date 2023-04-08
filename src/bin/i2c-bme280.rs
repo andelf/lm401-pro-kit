@@ -55,11 +55,18 @@ async fn main(_spawner: Spawner) {
         let raw = unwrap!(bmp280.measure(&mut delay));
 
         info!("BME280: {:?}", raw);
-        core::write!(msg, "BME280 {:?}\r\n", raw).unwrap();
+        core::write!(
+            msg,
+            "temperature:{},pressure:{},humidity:{}\r\n",
+            raw.temperature,
+            raw.pressure,
+            raw.humidity
+        )
+        .unwrap();
         uart.blocking_write(msg.as_bytes()).unwrap();
         msg.clear();
 
         led.toggle();
-        Timer::after(Duration::from_millis(2000)).await;
+        Timer::after(Duration::from_millis(500)).await;
     }
 }
